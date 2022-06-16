@@ -23,11 +23,12 @@ import astropy.coordinates as coord
 
 def predict_pm(inputs, model, usevdM02=False):
 
-    data = inputs #Create a copy of the Table
+    data = Table(data=inputs, names=inputs.colnames) #Create a copy of the Table
 
     center = [d2r(model['RA_0']), d2r(model['Dec_0'])]
 
-    rho, phi = wcs2ang(center[0], center[1], \ d2r(data['RA']), d2r(data['Dec']))
+    rho, phi = wcs2ang(center[0], center[1], \
+     d2r(data['RA']), d2r(data['Dec']))
 
     data.add_column(rho, name='rho')
     data.add_column(phi, name='phi')
@@ -35,7 +36,7 @@ def predict_pm(inputs, model, usevdM02=False):
     dist0, vtran, thtran = prep_model_params(model)
 
     galxyz = ang2xyz(rho, phi, data['Dist'], \
-    dist0, theta=model['theta'], incl=model['incl'])
+    dist0,theta=d2r(model['theta']),incl=d2r(model['incl']))
 
     data.add_column(galxyz[:,0], name='x0')
     data.add_column(galxyz[:,1], name='y0')
@@ -43,17 +44,19 @@ def predict_pm(inputs, model, usevdM02=False):
 
 ##
 
-    velcm = np.zeros((len(base),3))
+    velcm = np.zeros((len(data),3))
 
     velcm[:,0], velcm[:,1], velcm[:,2] = make_cm_angvec(vtran, thtran, model['vsys_0'], data['rho'], data['phi'])
 
-    components = Table([velcm[:,0], velcm[:,1], vecm[:,2]], names=['cm1', 'cm2', 'cm3'])
+    components = Table([velcm[:,0], velcm[:,1], velcm[:,2]], names=['cm1', 'cm2', 'cm3'])
 
 ##
 
-    velpn = np.zeros((len(base),3))
+    velpn = np.zeros((len(data),3))
 
-    velpn[:,0], velpn[:,1], velpn[:,2] = pn_comp(model['thet'], model['incl'], dist0, \ data['phi'], data['rho'], model['didt'], model['dtdt'])
+    velpn[:,0], velpn[:,1], velpn[:,2] = pn_comp(d2r(model['theta']), d2r(model['incl']), \
+    dist0, data['phi'], data['rho'], model['didt'], \
+    model['dtdt'])
 
     components.add_column(velpn[:,0], name='pn1')
     components.add_column(velpn[:,1], name='pn2')
@@ -61,18 +64,18 @@ def predict_pm(inputs, model, usevdM02=False):
 
 ##
 
-    velint = np.zeros((len(base),3))
+    velint = np.zeros((len(data),3))
 
     if (usevdM02):
         velint[:,0], velint[:,1], velint[:,2] = make_int_angvec_plane(model['rad0'], \
-         model['Vrot'], model['rotdir'], model['thet'], \
-         model['incl'], dist0, data['phi'], data['rho'], \
-         data['Dist'], usevdM02=usevdM02, n0=n0)
+        model['Vrot'],model['rotdir'],d2r(model['theta']), \
+        d2r(model['incl']),dist0, data['phi'], data['rho'], \
+        data['Dist'], usevdM02=usevdM02)
 
     else:
         velint[:,0], velint[:,1], velint[:,2] = make_int_angvec_plane(model['rad0'], \
-        model['Vrot'], model['rotdir'], model['thet'], \
-        model['incl'], dist0, data['phi'], data['rho'], \
+        model['Vrot'], model['rotdir'],d2r(model['theta']), \
+        d2r(model['incl']),dist0, data['phi'], data['rho'], \
         data['Dist'])
 
     components.add_column(velint[:,0], name='rot1')
@@ -80,10 +83,10 @@ def predict_pm(inputs, model, usevdM02=False):
     components.add_column(velint[:,2], name='rot3')
 
 ##
-    veltidal = np.zeros((len(base),3))
+    veltidal = np.zeros((len(data),3))
 
-    newtidal = tidal_linear(center, dist0, data['RA'], \
-      data['Dec'], data['Dist'], model['relvel0'][0], \
+    newtidal = tidal_linear(center, dist0, d2r(data['RA']), \
+      d2r(data['Dec']), data['Dist'], model['relvel0'][0], \
       model['relvel0'][1], model['relvel0'][2], \
       model['vsys_0'], model['tidalScale'])
 
@@ -100,7 +103,7 @@ def predict_pm(inputs, model, usevdM02=False):
     data.add_column(components['cm3'] + components['pn3'] + components['rot3'] + components['tidal3'], name='v3')
 
     cosg, sing = calc_gamma(center[0], center[1], \
-     data['RA'], data['Dec'], data['rho'])
+     d2r(data['RA']), d2r(data['Dec']), data['rho'])
     data.add_column(cosg, name='cosG')
     data.add_column(sing, name='sinG')
 
@@ -275,7 +278,7 @@ def make_int_angvec_plane(rad0, vel0, sign, thet, incl, dist0, phi, rho, dist, c
 
 # Calculates the (vx', vy', vz') vector in the frame of the galaxy
 
-  newcoord = ang2xyz(phi, rho, dist, dist0, theta=thet, inclin=incl)
+  newcoord = ang2xyz(phi, rho, dist, dist0, theta=thet, incl=incl)
   x1, y1, z1 = 0, 1, 2
 
   vframe = np.zeros((len(rho),3))
@@ -375,3 +378,67 @@ def rotcurve_vdM02(x, y, r0, v0, checkcurve=False, checkfile="", n0=0.0):
   return vrot
 
 ################################################################
+
+################################################################
+#### Function to convert velocities in the vdM02 vx, vy, vz
+## space into the more spherical v1, v2, v3 space
+
+def vel_xyz2sph(vel, thet, incl, phi, rho):
+
+# Calculate the components of the transformation matrix from v' to v
+
+  la = np.sin(rho) * np.cos(phi-thet)
+  lb = np.cos(rho) * np.cos(phi-thet)
+  lc = -1.0 * np.sin(phi-thet)
+  ld = np.sin(rho) * np.cos(incl) * np.sin(phi-thet) + np.cos(rho) * np.sin(incl)
+  le = np.cos(rho) * np.cos(incl) * np.sin(phi-thet) - np.sin(rho) * np.sin(incl)
+  lf = np.cos(incl) * np.cos(phi-thet)
+  lg = np.sin(rho) * np.sin(incl) * np.sin(phi-thet) - np.cos(rho) * np.cos(incl)
+  lh = np.cos(rho) * np.sin(incl) * np.sin(phi-thet) + np.sin(rho) * np.cos(incl)
+  li = np.sin(incl) * np.cos(phi-thet)
+
+  vx, vy, vz = 0, 1, 2
+
+  v1 = la * vel[:,vx] + ld * vel[:,vy] + lg * vel[:,vz]
+  v2 = lb * vel[:,vx] + le * vel[:,vy] + lh * vel[:,vz]
+  v3 = lc * vel[:,vx] + lf * vel[:,vy] + li * vel[:,vz]
+
+#
+
+  return v1, v2, v3
+
+
+################################################################
+
+##########################################################################
+#### Function to calculate the Gamma factor for vector transformations
+
+def calc_gamma(ra0, dec0, ra, dec, rho):
+
+    cosG = (np.sin(dec) * np.cos(dec0) * np.cos(ra-ra0) - np.cos(dec)*np.sin(dec0)) / np.sin(rho)
+
+    sinG = (np.cos(dec0) * np.sin(ra - ra0)) / np.sin(rho)
+
+    return cosG, sinG
+
+##########################################################################
+
+##########################################################################
+#### Function to convert an angular vector to wcs
+
+def ang2wcs_vec(dist0, v2, v3, cosG, sinG, rho, phi, theta=np.deg2rad(0.00001), incl=np.deg2rad(0.00001)):
+
+# Calculates the scaling quantity for the proper motion
+
+    propercon = (np.cos(incl) * np.cos(rho) - np.sin(incl)*np.sin(rho)*np.sin(phi-theta)) \
+    / (dist0 * np.cos(incl))
+
+# Use the scaling quantity and the vector components in the skyplane
+# to calculate the observable proper motions
+
+    muwe = (propercon * (-1.0*sinG*(v2) - cosG*(v3))) / (4.7403895)
+    muno = (propercon * (cosG*(v2) - sinG*(v3))) / (4.7403895)
+
+    return muwe, muno
+
+##########################################################################
