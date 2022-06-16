@@ -12,5 +12,7 @@
   "rotdir" : -1.0,
   "relvel0" : [0.43452, -0.20803, -36.61517],
   "tidalScale" : 10.0,
-  "tidalType" : "Linear"
+  "tidalType" : "Linear",
+  "didt" : 0.0,
+  "dtdt" : 0.0
 }
